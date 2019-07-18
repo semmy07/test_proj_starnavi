@@ -1,8 +1,8 @@
+from django.core.exceptions import ObjectDoesNotExist
 from django.http import JsonResponse
-from rest_framework import status
+from rest_framework.generics import CreateAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet
 
 from apps.core.models import User, Post
 from .serializers import UserSerializer, RegistrationSerializer, PostSerializer
@@ -15,63 +15,51 @@ def jwt_response_payload_handler(token, user=None, request=None):
     }
 
 
-class RegistrationAPIView(APIView):
+class RegistrationViewSet(CreateAPIView):
     permission_classes = (AllowAny,)
     serializer_class = RegistrationSerializer
 
-    def post(self, request):
-        user = request.data
 
-        serializer = self.serializer_class(data=user)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-class PostEndpoint(APIView):
-    permission_classes = (AllowAny,)
+class PostEndpoint(ModelViewSet):
+    permission_classes = (IsAuthenticated,)
     queryset = Post.objects.all()
     serializer_class = PostSerializer
 
-    def post(self, request):
+    def update(self, request, *args, **kwargs):
         data = request.data
-        user = User.objects.get(id=data.get('user_id'))
+        post_id = kwargs['pk']
 
-        fields = {
-            'creator': user,
-            'text': data.get('text', '')
-        }
+        try:
+            user = User.objects.get(id=data.get('user_id'))
+            current_post = Post.objects.get(id=post_id)
+        except ObjectDoesNotExist:
+            return JsonResponse({"ok": False, "message": "User or post with provided id does not exist. "}, status=500)
+        except Exception as e:
+            return JsonResponse({"ok": False, "message": f"There was an exception: {e}"}, status=500)
 
-        Post.objects.create(**fields)
-        return JsonResponse({"ok": True, "message": 'Post created successfully'},
-                            status=200)
-
-    def put(self, request):
-        data = request.data
-
-        user = User.objects.get(id=data.get('user_id'))
-        post_id = data['post_id']
-
-        current_post = Post.objects.get(id=post_id)
         all_likes = current_post.user_likes.all()
 
         if user in all_likes:
             current_post.user_likes.remove(user)
-            message = 'Post liked'
+            message = 'Post unliked'
         else:
             current_post.user_likes.add(user)
-            message = 'Post unliked'
+            message = 'Post liked'
 
         return JsonResponse({"ok": True, "message": message}, status=200)
 
-    def delete(self, request):
+    def destroy(self, request, *args, **kwargs):
         data = request.data
+        post_id = kwargs['pk']
 
-        user = User.objects.get(id=data.get('user_id'))
-        post_id = data['post_id']
+        try:
+            user = User.objects.get(id=data.get('user_id'))
+            current_post = Post.objects.get(id=post_id)
+        except ObjectDoesNotExist:
+            return JsonResponse({"ok": False, "message": "User or post with provided id does not exist. "}, status=500)
+        except Exception as e:
+            return JsonResponse({"ok": False, "message": f"There was an exception: {e}"}, status=500)
 
-        current_post = Post.objects.get(id=post_id)
         if current_post.creator == user:
             current_post.delete()
             return JsonResponse({"ok": True, "message": 'Post removed'}, status=200)
